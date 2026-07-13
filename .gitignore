@@ -1,0 +1,40 @@
+# Operating systems and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+__pycache__/
+*.py[cod]
+.venv/
+
+# Environment files and credentials
+.env
+.env.*
+!.env.example
+.eight-sleep-mcp/
+**/tokens.json
+**/config.local.json
+*.pem
+*.key
+
+# Local health data, caches, and logs
+exports/
+private/
+*.sqlite
+*.sqlite-*
+*.db
+*.log
+logs/
+tmp/
+temp/
+eight_sleep_raw_data.json
+eight_sleep_sleep_stages.csv
+*.sleep-export.json
+*.sleep-export.csv

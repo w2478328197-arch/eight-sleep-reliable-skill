@@ -1,0 +1,48 @@
+# Privacy
+
+## Summary
+
+This repository does not operate a hosted service and does not intentionally collect telemetry. When the skill is used, its bundled local CLI communicates directly with Eight Sleep's private, undocumented API and returns selected information to the user's agent environment. The agent client or model provider may process that information under its own privacy terms.
+
+Eight Sleep sleep and device records can contain sensitive health and personal information. Use this project only with an account you own or are authorized to access.
+
+## Data handled
+
+Depending on the command, the bundled CLI may process:
+
+- An access token and the requesting user's ID
+- The account profile response during the opt-in `doctor --check-api` connectivity check; it is discarded without being returned or persisted
+- Requested sleep sessions, scores, stages, presence, timestamps, and related wellness fields present in the trends response
+- Temperature state and the current device record needed for hardware-side verification
+
+The CLI requests only the endpoints needed for the command and returns a summarized or redacted structure. It does not offer raw API output or persist API responses.
+
+## Credentials and accounts
+
+- Every user must sign in locally with their own Eight Sleep account.
+- Do not ask another person to share a password, token, or credential file.
+- Keep credentials outside the repository and outside synced or shared folders.
+- Never place credentials in source files, prompts, issue reports, screenshots, shell history, or continuous-integration secrets used by untrusted pull requests.
+- Use the documented pinned third-party interactive setup instead of manually copying tokens. That separate utility handles the email and password and may store them locally for token refresh; the bundled CLI does not read them.
+
+## Linked users and bed partners
+
+A Pod may return a combined device record containing both sides. To map the requesting user to the correct hardware side, the CLI minimally processes that record locally, including side-to-user mappings and device-side telemetry. It does not return or persist the linked user's identifiers or measurements. Do not export, summarize, or publish a linked user's or bed partner's data without their authorization.
+
+## Local files and exports
+
+Exports must be explicitly requested by the user, written to a user-selected location, and protected so only that user can read them. Prefer a redacted export over a raw backup. Tell the user where the file was written and delete temporary copies when they are no longer needed.
+
+Do not commit exports, caches, logs, token stores, or local configuration. The repository's `.gitignore` provides common exclusions, but it is not a substitute for reviewing every commit before publication.
+
+## Public support channels
+
+Never post credentials, identifiers, or real sleep and health data in a GitHub issue, discussion, pull request, or security report. Reproduce problems with synthetic data and redact request URLs, headers, response bodies, screenshots, and filesystem paths.
+
+For security-sensitive reports, follow `SECURITY.md`.
+
+## Third parties and API stability
+
+This is an unofficial community project and is not affiliated with, endorsed by, or supported by Eight Sleep, Inc. The private API may change or stop working without notice. Users are responsible for reviewing the terms and privacy policies of Eight Sleep and their chosen agent or model provider.
+
+This project is not intended for diagnosis, treatment, emergency response, or clinical decision-making.

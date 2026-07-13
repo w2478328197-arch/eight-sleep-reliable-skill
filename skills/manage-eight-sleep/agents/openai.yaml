@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage Eight Sleep"
+  short_description: "Cautious sleep reads and guarded Pod control"
+  default_prompt: "Use $manage-eight-sleep to check my latest sleep and explain the result safely."

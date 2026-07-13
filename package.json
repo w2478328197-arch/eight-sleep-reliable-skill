@@ -1,0 +1,15 @@
+{
+  "name": "manage-eight-sleep-skill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unofficial, read-first Eight Sleep skill with guarded temperature controls.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "validate": "node scripts/validate-repository.mjs && node scripts/check-secrets.mjs && node --check skills/manage-eight-sleep/scripts/eight-sleep-lib.mjs && node --check skills/manage-eight-sleep/scripts/eight-sleep.mjs && node skills/manage-eight-sleep/scripts/eight-sleep.mjs help > /dev/null && bash -n install.sh"
+  }
+}
