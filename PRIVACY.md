@@ -42,6 +42,12 @@ Do not commit exports, caches, logs, token stores, or local configuration. The r
 
 Hermes, Codex, or another agent host may retain conversation transcripts, commands, and tool output independently of this repository. Never print tokens, authorization headers, raw profile responses, raw sleep payloads, or complete configuration files for troubleshooting. The optional Hermes audit scans `config.yaml`, `$HERMES_HOME/.env`, and skill paths locally and returns only status booleans, recommendations, and relative skill paths. It does not return, persist, or send configuration values, and it does not read conversation history.
 
+## Messaging apps
+
+When a user separately connects WeChat, Feishu/Lark, Telegram, or another messaging app through an agent or gateway, the user's requests and the agent's replies pass through that platform and may be stored under its own privacy and retention rules. Depending on the request, a reply can contain sleep summaries or device state even though this repository returns redacted data.
+
+Use an allowlist, prefer direct messages, and avoid health-data requests in shared groups. This repository does not configure, operate, retain, or delete messaging accounts, bot credentials, channel histories, or gateway logs. Review the privacy terms and retention settings of the chosen messaging platform, agent, model provider, and gateway before use.
+
 ## Public support channels
 
 Never post credentials, identifiers, or real sleep and health data in a GitHub issue, discussion, pull request, or security report. Reproduce problems with synthetic data and redact request URLs, headers, response bodies, screenshots, and filesystem paths.

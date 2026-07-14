@@ -44,4 +44,12 @@ Run `doctor --check-hermes` before enabling writes. Keep only one Eight Sleep co
 
 Hermes transcripts and diagnostic logs may preserve prompts, commands, and tool output. Do not paste raw configuration or API payloads into a conversation. If a password, token, or authorization response was historically stored in a transcript or log, rotate or revoke the credential and review local backups before sharing or publishing them. Migration and log deletion are intentionally not automated.
 
+## Messaging gateways
+
+Installing this repository does not connect WeChat, Feishu/Lark, Telegram, or another messaging platform. A separately configured agent or gateway owns the bot identity, channel credentials, inbound authorization, and process lifecycle.
+
+For health data and device control, restrict each channel to explicitly authorized user IDs, prefer direct messages, and leave group access disabled unless it is deliberately required. Keep model keys, bot tokens, app secrets, webhook secrets, and Eight Sleep credentials out of prompts and transcripts. Keep the gateway and channel adapter updated, and stop the gateway when remote access is not intended.
+
+A message arriving through an authorized channel is not sufficient write authorization. The guarded Skill/CLI still requires an exact current-turn request, dry run, separate confirmation, and App-backend plus hardware verification.
+
 This project is not a medical device, clinical tool, or emergency monitoring system.

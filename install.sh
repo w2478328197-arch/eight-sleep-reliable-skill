@@ -388,11 +388,22 @@ Next steps:
   2. Protect it on macOS/Linux:
      chmod 600 ~/.eight-sleep-mcp/config.json ~/.eight-sleep-mcp/tokens.json
   3. Restart the host or begin a new session so it reloads installed skills.
+  4. This installs only the Eight Sleep skill. It does not connect WeChat,
+     Feishu/Lark, Telegram, another messaging app, or a model provider.
 EOF
 
 if [[ "$target" == "hermes" || "$target" == "both" ]]; then
-  printf '  4. For Hermes, audit legacy skills and config without printing secret values:\n'
+  printf '  5. For Hermes, audit legacy skills and config without printing secret values:\n'
   printf '     node %q doctor --check-hermes\n' "$hermes_home/skills/manage-eight-sleep/scripts/eight-sleep.mjs"
+  cat <<'EOF'
+  6. Optional messaging: run "hermes gateway setup", select a platform,
+     restrict access to authorized users, then keep "hermes gateway" running.
+EOF
+else
+  cat <<'EOF'
+  5. For messaging access, configure a compatible agent or gateway separately,
+     restrict it to authorized users, and keep that gateway running.
+EOF
 fi
 
 cat <<'EOF'
