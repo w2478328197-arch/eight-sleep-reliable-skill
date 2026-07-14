@@ -50,6 +50,8 @@ chmod 600 ~/.eight-sleep-mcp/config.json \
   ~/.eight-sleep-mcp/tokens.json
 ```
 
+普通安装请使用 **summary（推荐）**，不要选择 `raw`。
+
 如果登录工具询问是否启用写入工具，请选择 **No**。这只会关闭上游 MCP 的写入；本项目的安全 Skill 仍可通过自己的确认流程调温。
 
 ### 2. 安装 Skill
