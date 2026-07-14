@@ -4,6 +4,8 @@
 
 This repository does not operate a hosted service and does not intentionally collect telemetry. When the skill is used, its bundled local CLI communicates directly with Eight Sleep's private, undocumented API and returns selected information to the user's agent environment. The agent client or model provider may process that information under its own privacy terms.
 
+The generic MCP option in the README runs the separate `eight-sleep-mcp-unofficial` project. Its tools and data handling are governed by that upstream project rather than this repository. Review its privacy and mutation settings before use.
+
 Eight Sleep sleep and device records can contain sensitive health and personal information. Use this project only with an account personally controlled by the person running the skill and with equipment that person owns or is authorized to operate. Device authorization does not authorize sharing another person's credentials.
 
 ## Data handled
