@@ -63,6 +63,7 @@ test("installer handles both hosts atomically and refuses accidental replacement
   assert.match(first.stdout, /does not connect WeChat/);
   assert.match(first.stdout, /Feishu\/Lark, Telegram/);
   assert.match(first.stdout, /hermes gateway setup/);
+  assert.match(first.stdout, /recommended summary privacy mode/);
 
   const codexSkill = path.join(codexHome, "skills", "manage-eight-sleep", "SKILL.md");
   const hermesSkill = path.join(hermesHome, "skills", "manage-eight-sleep", "SKILL.md");

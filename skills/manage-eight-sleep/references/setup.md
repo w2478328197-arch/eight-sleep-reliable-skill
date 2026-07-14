@@ -40,6 +40,8 @@ This project does not accept or store an email or password. It can reuse the tok
 npx -y eight-sleep-mcp-unofficial@0.2.5 setup --client generic --privacy-mode summary
 ```
 
+Use `summary` for normal installations. Do not choose `raw`.
+
 Answer **No** when it asks whether to enable its write tools. The upstream `setup` command is interactive, stores the user's Eight Sleep credentials in `~/.eight-sleep-mcp/config.json`, writes a generic MCP snippet under `~/.eight-sleep-mcp/mcp-configs/`, and automatically performs the initial login. `--client generic` prevents it from editing Codex or Hermes configuration or installing a second Hermes skill. That behavior belongs to the third-party utility, not this skill. Review the [pinned package](https://www.npmjs.com/package/eight-sleep-mcp-unofficial/v/0.2.5), its security documentation, and its [source repository](https://github.com/davidmosiah/eight-sleep-mcp) before using it.
 
 The **No** choice disables only the upstream MCP server's mutation tools. It does not remove the guarded CLI's separately gated write workflow. On this skill path, use the pinned utility only for local authentication; do not also configure its MCP server in the same agent host.

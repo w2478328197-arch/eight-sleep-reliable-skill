@@ -382,9 +382,10 @@ done
 cat <<'EOF'
 
 Next steps:
-  1. On a fresh machine, create the token with your own account. Choose No when
-     asked to enable the helper's write tools; setup performs the first login:
+  1. On a fresh machine, use the recommended summary privacy mode. Do not
+     choose raw for normal use; setup performs the first login:
      npx -y eight-sleep-mcp-unofficial@0.2.5 setup --client generic --privacy-mode summary
+     Choose No when asked to enable the helper's write tools.
   2. Protect it on macOS/Linux:
      chmod 600 ~/.eight-sleep-mcp/config.json ~/.eight-sleep-mcp/tokens.json
   3. Restart the host or begin a new session so it reloads installed skills.

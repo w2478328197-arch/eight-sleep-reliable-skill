@@ -50,6 +50,8 @@ chmod 600 ~/.eight-sleep-mcp/config.json \
   ~/.eight-sleep-mcp/tokens.json
 ```
 
+Use **summary (recommended)** for normal installations; do not choose `raw`.
+
 Choose **No** if the setup tool asks whether to enable mutation tools. This disables upstream MCP writes only; the guarded Skill can still change temperature through its own confirmation flow.
 
 ### 2. Install the Skill
