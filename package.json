@@ -1,6 +1,6 @@
 {
   "name": "manage-eight-sleep-skill",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Unofficial, read-first Eight Sleep skill with guarded temperature controls.",
   "type": "module",

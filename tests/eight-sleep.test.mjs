@@ -156,8 +156,43 @@ test("calendar dates, ranges, App levels, and override durations are validated",
   assert.throws(() => appLevelToRaw(-2.5), UsageError);
   assert.throws(() => appLevelToRaw(-11), UsageError);
   assert.throws(() => appLevelToRaw(11), UsageError);
+  assert.throws(() => appLevelToRaw(true), /requires a value/);
+  assert.throws(() => appLevelToRaw(""), /requires a value/);
+  assert.throws(() => appLevelToRaw("   "), /requires a value/);
+  assert.throws(() => temperatureSetBody(-2), /Missing --duration-seconds/);
   assert.throws(() => temperatureSetBody(-2, 0), /at least 60/);
   assert.throws(() => temperatureSetBody(-2, 14_401), /at most 14400/);
+});
+
+test("CLI rejects misspelled, missing, empty, and extra arguments before networking", async () => {
+  let fetchCalls = 0;
+  const dependencies = {
+    env: {},
+    home: "/synthetic-home-that-must-not-be-read",
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      throw new Error("network must not be reached");
+    },
+  };
+  const cases = [
+    { args: ["doctor", "--check-herme", "--json"], message: /Unknown option --check-herme/ },
+    { args: ["temperature", "set", "--app-level=-2", "--duration-second=60", "--json"], message: /Unknown option --duration-second/ },
+    { args: ["temperature", "set", "--app-level=-2", "--json"], message: /Missing --duration-seconds/ },
+    { args: ["temperature", "set", "--app-level", "--duration-seconds=60", "--json"], message: /--app-level requires a value/ },
+    { args: ["temperature", "set", "--app-level=", "--duration-seconds=60", "--json"], message: /--app-level requires a value/ },
+    { args: ["temperature", "set", "--app-level=-2", "--duration-seconds", "--json"], message: /--duration-seconds requires a value/ },
+    { args: ["temperature", "verify", "--app-level", "--json"], message: /--app-level requires a value/ },
+    { args: ["temperature", "get", "extra", "--json"], message: /Unexpected positional argument/ },
+  ];
+
+  for (const entry of cases) {
+    await assert.rejects(run(entry.args, dependencies), (error) => {
+      assert.equal(error instanceof UsageError, true);
+      assert.match(error.message, entry.message);
+      return true;
+    });
+  }
+  assert.equal(fetchCalls, 0);
 });
 
 test("doctor is offline by default and does not expose credential values", async () => {
@@ -257,7 +292,14 @@ test("temperature set performs the three guarded writes in order and verifies ph
 
   assert.equal(result.kind, "temperature_set_result");
   assert.equal(result.ok, true);
+  assert.equal(result.verification.app_state_verified, true);
   assert.equal(result.verification.accepted_by_api, true);
+  assert.equal(result.verification.app_state_source, "app_api_readback");
+  assert.equal(result.verification.app_verification_scope, "backend_readback_not_phone_ui");
+  assert.equal(result.verification.app_ui_observed, false);
+  assert.equal(result.verification.app_state_confirmed_after_hardware, true);
+  assert.equal(result.verification.app_current_level_app, -2);
+  assert.equal(result.verification.app_time_based_level_app, -2);
   assert.equal(result.verification.hardware_verified, true);
   assert.equal(result.verification.side_resolved, true);
   assert.equal(result.verification.observed_device_level_raw, -5);
@@ -268,6 +310,9 @@ test("temperature set performs the three guarded writes in order and verifies ph
     { currentLevel: -20, currentState: { type: "smart" } },
     { timeBased: { level: -20, durationSeconds: 3_600 } },
   ]);
+  assert.equal(mock.calls.at(-1).method, "GET");
+  assert.equal(new URL(mock.calls.at(-1).url).origin, APP_BASE);
+  assert.match(new URL(mock.calls.at(-1).url).pathname, /\/temperature$/);
   assert.equal(JSON.stringify(result).includes(ACCESS_TOKEN), false);
 });
 
@@ -326,10 +371,11 @@ test("device user-id mapping overrides a conflicting declared side and target-on
   assert.equal(wrongDuration.accepted_by_api, false);
   assert.equal(wrongDuration.hardware_verified, true);
 
-  for (const durationSeconds of [0, 180]) {
+  for (const durationSeconds of [0, 1, 180]) {
     const invalidShortPlanState = verifyTemperature({
       ...common,
       expectedDuration: 60,
+      verificationElapsedSeconds: 0,
       temperature: {
         ...common.temperature,
         timeBased: { level: -20, durationSeconds },
@@ -342,6 +388,23 @@ test("device user-id mapping overrides a conflicting declared side and target-on
     });
     assert.equal(invalidShortPlanState.accepted_by_api, false);
   }
+
+  const validShortPlanState = verifyTemperature({
+    ...common,
+    expectedDuration: 60,
+    verificationElapsedSeconds: 0,
+    temperature: {
+      ...common.temperature,
+      timeBased: { level: -20, durationSeconds: 58 },
+    },
+    device: {
+      leftUserId: USER_ID,
+      rightUserId: "synthetic-other-user",
+      leftNowHeating: -4,
+    },
+  });
+  assert.equal(validShortPlanState.accepted_by_api, true);
+  assert.equal(validShortPlanState.duration_tolerance_seconds, 3);
 
   const unknownSmartLikeState = verifyTemperature({
     ...common,
@@ -373,7 +436,12 @@ test("device user-id mapping overrides a conflicting declared side and target-on
   assert.equal(conflictingActualSignals.observed_device_level_raw, 5);
 
   const conflictingOffSignals = verifyOff({
-    temperature: { currentState: { type: "off" }, currentDeviceLevel: 0 },
+    temperature: {
+      currentState: { type: "off" },
+      currentLevel: 0,
+      currentDeviceLevel: 0,
+      timeBased: { level: 0, durationSeconds: 0 },
+    },
     currentDevice: { side: "solo" },
     device: {
       leftUserId: USER_ID,
@@ -382,9 +450,29 @@ test("device user-id mapping overrides a conflicting declared side and target-on
     },
     userId: USER_ID,
   });
+  assert.equal(conflictingOffSignals.app_state_verified, true);
   assert.equal(conflictingOffSignals.accepted_by_api, true);
   assert.equal(conflictingOffSignals.hardware_verified, false);
   assert.equal(conflictingOffSignals.observed_device_level_raw, 5);
+
+  const appOnButHardwareOff = verifyOff({
+    temperature: {
+      currentState: { type: "smart" },
+      currentLevel: 0,
+      currentDeviceLevel: 0,
+      timeBased: { level: 0, durationSeconds: 0 },
+    },
+    currentDevice: { side: "solo" },
+    device: {
+      leftUserId: USER_ID,
+      rightUserId: "synthetic-other-user",
+      leftNowHeating: 0,
+    },
+    userId: USER_ID,
+  });
+  assert.equal(appOnButHardwareOff.app_state_verified, false);
+  assert.equal(appOnButHardwareOff.hardware_verified, true);
+  assert.equal(appOnButHardwareOff.reason, "state_not_off");
 
   const unresolved = verifyTemperature({
     ...common,
@@ -397,6 +485,129 @@ test("device user-id mapping overrides a conflicting declared side and target-on
   });
   assert.equal(unresolved.side_resolved, false);
   assert.equal(unresolved.hardware_verified, false);
+});
+
+test("real device activity and TargetHeatingLevel fields fail closed on target conflicts", () => {
+  const common = {
+    temperature: {
+      currentState: { type: "smart" },
+      currentLevel: -20,
+      currentDeviceLevel: -4,
+      timeBased: { level: -20, durationSeconds: 3_600 },
+    },
+    currentDevice: { side: "left" },
+    targetRaw: -20,
+    expectedDuration: 3_600,
+    userId: USER_ID,
+  };
+
+  const matching = verifyTemperature({
+    ...common,
+    device: {
+      leftUserId: USER_ID,
+      leftHeatingLevel: -4,
+      leftTargetHeatingLevel: -20,
+      leftNowHeating: true,
+    },
+  });
+  assert.equal(matching.app_state_verified, true);
+  assert.equal(matching.hardware_verified, true);
+  assert.equal(matching.device_signal, "leftHeatingLevel");
+  assert.equal(matching.device_active_signal, "leftNowHeating");
+  assert.equal(matching.device_active, true);
+  assert.equal(matching.device_target_signal, "leftTargetHeatingLevel");
+  assert.equal(matching.reported_device_target_raw, -20);
+  assert.equal(matching.device_target_matches_requested, true);
+
+  const wrongTarget = verifyTemperature({
+    ...common,
+    device: {
+      leftUserId: USER_ID,
+      leftHeatingLevel: -4,
+      leftTargetHeatingLevel: -100,
+      leftNowHeating: true,
+    },
+  });
+  assert.equal(wrongTarget.app_state_verified, true);
+  assert.equal(wrongTarget.hardware_verified, false);
+  assert.equal(wrongTarget.device_target_conflict, true);
+  assert.equal(wrongTarget.device_target_matches_requested, false);
+  assert.equal(wrongTarget.hardware_verification_reason, "device_target_conflict");
+
+  const inactive = verifyTemperature({
+    ...common,
+    device: {
+      leftUserId: USER_ID,
+      leftHeatingLevel: -4,
+      leftTargetHeatingLevel: -20,
+      leftNowHeating: false,
+    },
+  });
+  assert.equal(inactive.hardware_verified, false);
+  assert.equal(inactive.hardware_verification_reason, "device_inactive_for_nonzero_target");
+
+  const legacyNamedConflict = verifyTemperature({
+    ...common,
+    device: {
+      leftUserId: USER_ID,
+      leftHeatingLevel: -4,
+      leftTargetLevel: -100,
+    },
+  });
+  assert.equal(legacyNamedConflict.hardware_verified, false);
+  assert.equal(legacyNamedConflict.device_target_conflict, true);
+});
+
+test("off hardware can use inactive state with a zero device target without weakening App checks", () => {
+  const common = {
+    temperature: {
+      currentState: { type: "off" },
+      currentLevel: 0,
+      currentDeviceLevel: -2,
+      timeBased: { level: 0, durationSeconds: 0 },
+    },
+    currentDevice: { side: "left" },
+    device: {
+      leftUserId: USER_ID,
+      leftHeatingLevel: -2,
+      leftTargetHeatingLevel: 0,
+      leftNowHeating: false,
+    },
+    userId: USER_ID,
+  };
+
+  const verified = verifyOff(common);
+  assert.equal(verified.app_state_verified, true);
+  assert.equal(verified.hardware_verified, true);
+  assert.equal(verified.hardware_verification_basis, "device_inactive_with_zero_target");
+  assert.equal(verified.device_active, false);
+  assert.equal(verified.device_target_signal, "leftTargetHeatingLevel");
+  assert.equal(verified.device_target_matches_off, true);
+  assert.equal(verified.observed_device_level_raw, -2);
+
+  const durationOnlyOverride = verifyOff({
+    ...common,
+    temperature: {
+      ...common.temperature,
+      timeBased: { level: 0, durationSeconds: 3_600 },
+    },
+  });
+  assert.equal(durationOnlyOverride.hardware_verified, true);
+  assert.equal(durationOnlyOverride.app_state_verified, false);
+  assert.equal(durationOnlyOverride.app_time_based_cleared, false);
+  assert.equal(durationOnlyOverride.stale_time_based_override, true);
+  assert.equal(durationOnlyOverride.reason, "stale_time_based_override");
+
+  const nonzeroTarget = verifyOff({
+    ...common,
+    device: {
+      ...common.device,
+      leftTargetHeatingLevel: -20,
+    },
+  });
+  assert.equal(nonzeroTarget.hardware_verified, false);
+  assert.equal(nonzeroTarget.device_target_conflict, true);
+  assert.equal(nonzeroTarget.hardware_verification_reason, "device_target_conflict");
 });
 
 test("an explicitly rejected later write step cannot be reported as successful from pre-existing matching state", async () => {
@@ -431,6 +642,64 @@ test("an explicitly rejected later write step cannot be reported as successful f
   assert.equal(mock.calls.filter((call) => call.method === "PUT").length, 2);
 });
 
+test("an ambiguous early write step cannot be rescued by pre-existing matching state", async () => {
+  const mock = recordingFetch((call) => {
+    const url = new URL(call.url);
+    if (call.method === "PUT") return jsonResponse({ error: "synthetic ambiguous failure" }, 503);
+    if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
+      return jsonResponse({
+        currentState: { type: "smart" },
+        currentLevel: -20,
+        currentDeviceLevel: -4,
+        timeBased: { level: -20, durationSeconds: 3_600 },
+      });
+    }
+    if (url.pathname.endsWith("/current-device")) return jsonResponse({ id: DEVICE_ID, side: "solo" });
+    if (url.pathname === `/v1/devices/${DEVICE_ID}`) return jsonResponse(successfulDevicePayload(-4));
+    throw new Error(`Unexpected synthetic request: ${call.method} ${call.url}`);
+  });
+
+  await assert.rejects(run(setArguments(), commandDeps(mock.fetchImpl)), (error) => {
+    assert.equal(error instanceof ApiError, true);
+    assert.equal(error.outcomeUnknown, true);
+    assert.match(error.message, /later required steps were not attempted/);
+    return true;
+  });
+  assert.equal(mock.calls.filter((call) => call.method === "PUT").length, 1);
+});
+
+test("an ambiguous final timed override can be corroborated by exact App and hardware read-back", async () => {
+  let putNumber = 0;
+  const mock = recordingFetch((call) => {
+    const url = new URL(call.url);
+    if (call.method === "PUT") {
+      putNumber += 1;
+      return putNumber < 3
+        ? jsonResponse({ accepted: true })
+        : jsonResponse({ error: "synthetic ambiguous failure" }, 503);
+    }
+    if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
+      return jsonResponse({
+        currentState: { type: "smart" },
+        currentLevel: -20,
+        currentDeviceLevel: -4,
+        timeBased: { level: -20, durationSeconds: 3_600 },
+      });
+    }
+    if (url.pathname.endsWith("/current-device")) return jsonResponse({ id: DEVICE_ID, side: "solo" });
+    if (url.pathname === `/v1/devices/${DEVICE_ID}`) return jsonResponse(successfulDevicePayload(-4));
+    throw new Error(`Unexpected synthetic request: ${call.method} ${call.url}`);
+  });
+
+  const result = await run(setArguments(), commandDeps(mock.fetchImpl));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.write_transport_error_but_state_verified, true);
+  assert.deepEqual(result.completed_write_steps, ["enable_smart", "set_level"]);
+  assert.equal(result.uncertain_write_step, "set_timed_override");
+  assert.equal(mock.calls.filter((call) => call.method === "PUT").length, 3);
+});
+
 test("temperature set reports API acceptance without claiming success when physical verification never completes", async () => {
   const mock = recordingFetch((call) => {
     const url = new URL(call.url);
@@ -458,6 +727,252 @@ test("temperature set reports API acceptance without claiming success when physi
   assert.equal(mock.calls.filter((call) => call.method === "GET").length, 6);
 });
 
+test("temperature set fails closed when hardware moves but the App-facing backend target does not match", async () => {
+  const mock = recordingFetch((call) => {
+    const url = new URL(call.url);
+    if (call.method === "PUT") return jsonResponse({ accepted: true });
+    if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
+      return jsonResponse({
+        currentState: { type: "smart" },
+        currentLevel: -10,
+        currentDeviceLevel: -4,
+        timeBased: { level: -10, durationSeconds: 3_600 },
+      });
+    }
+    if (url.pathname.endsWith("/current-device")) return jsonResponse({ id: DEVICE_ID, side: "solo" });
+    if (url.pathname === `/v1/devices/${DEVICE_ID}`) return jsonResponse(successfulDevicePayload(-4));
+    throw new Error(`Unexpected synthetic request: ${call.method} ${call.url}`);
+  });
+
+  const result = await run(setArguments(), commandDeps(mock.fetchImpl));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.verification.app_state_verified, false);
+  assert.equal(result.verification.hardware_verified, true);
+  assert.equal(result.verification.app_current_level_app, -1);
+  assert.match(result.warning, /App-facing backend state was not verified/);
+  assert.equal(mock.calls.filter((call) => call.method === "PUT").length, 3);
+});
+
+test("temperature set performs a final backend read after hardware success and catches a late overwrite", async () => {
+  let temperatureReads = 0;
+  const mock = recordingFetch((call) => {
+    const url = new URL(call.url);
+    if (call.method === "PUT") return jsonResponse({ accepted: true });
+    if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
+      temperatureReads += 1;
+      const level = temperatureReads === 1 ? -20 : -10;
+      return jsonResponse({
+        currentState: { type: "smart" },
+        currentLevel: level,
+        currentDeviceLevel: -4,
+        timeBased: { level, durationSeconds: 3_600 },
+      });
+    }
+    if (url.pathname.endsWith("/current-device")) return jsonResponse({ id: DEVICE_ID, side: "solo" });
+    if (url.pathname === `/v1/devices/${DEVICE_ID}`) return jsonResponse(successfulDevicePayload(-4));
+    throw new Error(`Unexpected synthetic request: ${call.method} ${call.url}`);
+  });
+
+  const result = await run(setArguments(), commandDeps(mock.fetchImpl));
+
+  assert.equal(temperatureReads, 2);
+  assert.equal(result.ok, false);
+  assert.equal(result.verification.app_state_verified, false);
+  assert.equal(result.verification.app_state_confirmed_after_hardware, false);
+  assert.equal(result.verification.hardware_verified, true);
+  assert.equal(mock.calls.at(-1).method, "GET");
+  assert.equal(new URL(mock.calls.at(-1).url).origin, APP_BASE);
+});
+
+test("temperature set can observe App synchronization that completes during hardware checking", async () => {
+  let temperatureReads = 0;
+  const mock = recordingFetch((call) => {
+    const url = new URL(call.url);
+    if (call.method === "PUT") return jsonResponse({ accepted: true });
+    if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
+      temperatureReads += 1;
+      const level = temperatureReads === 1 ? -10 : -20;
+      return jsonResponse({
+        currentState: { type: "smart" },
+        currentLevel: level,
+        currentDeviceLevel: -4,
+        timeBased: { level, durationSeconds: 3_600 },
+      });
+    }
+    if (url.pathname.endsWith("/current-device")) return jsonResponse({ id: DEVICE_ID, side: "solo" });
+    if (url.pathname === `/v1/devices/${DEVICE_ID}`) return jsonResponse(successfulDevicePayload(-4));
+    throw new Error(`Unexpected synthetic request: ${call.method} ${call.url}`);
+  });
+
+  const result = await run(setArguments(), commandDeps(mock.fetchImpl));
+
+  assert.equal(temperatureReads, 2);
+  assert.equal(result.ok, true);
+  assert.equal(result.verification.app_state_confirmed_after_hardware, true);
+  assert.equal(mock.calls.at(-1).method, "GET");
+  assert.equal(new URL(mock.calls.at(-1).url).origin, APP_BASE);
+});
+
+test("a 60-second plan verifies against elapsed time when hardware starts on a later poll", async () => {
+  let nowMs = new Date("2026-07-13T12:00:00.000Z").getTime();
+  let temperatureReads = 0;
+  let deviceReads = 0;
+  const mock = recordingFetch((call) => {
+    const url = new URL(call.url);
+    if (call.method === "PUT") return jsonResponse({ accepted: true });
+    if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
+      temperatureReads += 1;
+      return jsonResponse({
+        currentState: { type: "smart" },
+        currentLevel: -20,
+        currentDeviceLevel: 0,
+        timeBased: { level: -20, durationSeconds: temperatureReads === 1 ? 60 : 50 },
+      });
+    }
+    if (url.pathname.endsWith("/current-device")) return jsonResponse({ id: DEVICE_ID, side: "solo" });
+    if (url.pathname === `/v1/devices/${DEVICE_ID}`) {
+      deviceReads += 1;
+      return jsonResponse(successfulDevicePayload(deviceReads === 1 ? 0 : -4));
+    }
+    throw new Error(`Unexpected synthetic request: ${call.method} ${call.url}`);
+  });
+
+  const result = await run([
+    "temperature",
+    "set",
+    "--app-level=-2",
+    "--duration-seconds=60",
+    "--apply",
+    "--confirm-write=temperature:set:-2:60",
+  ], commandDeps(mock.fetchImpl, {
+    verifyAttempts: 2,
+    verifyIntervalMs: 10_000,
+    now: () => new Date(nowMs),
+    sleep: async (milliseconds) => {
+      nowMs += milliseconds;
+    },
+  }));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.verification.verification_elapsed_seconds, 10);
+  assert.equal(result.verification.expected_remaining_duration_seconds, 50);
+  assert.equal(result.verification.observed_duration_seconds, 50);
+  assert.equal(result.verification.duration_verified_against_plan, true);
+  assert.equal(temperatureReads, 3);
+});
+
+test("a 60-second plan allows activation anywhere within the final PUT round trip", async () => {
+  let nowMs = new Date("2026-07-13T12:00:00.000Z").getTime();
+  let putNumber = 0;
+  const mock = recordingFetch((call) => {
+    const url = new URL(call.url);
+    if (call.method === "PUT") {
+      putNumber += 1;
+      if (putNumber === 3) nowMs += 5_000;
+      return jsonResponse({ accepted: true });
+    }
+    if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
+      return jsonResponse({
+        currentState: { type: "smart" },
+        currentLevel: -20,
+        currentDeviceLevel: -4,
+        timeBased: { level: -20, durationSeconds: 60 },
+      });
+    }
+    if (url.pathname.endsWith("/current-device")) return jsonResponse({ id: DEVICE_ID, side: "solo" });
+    if (url.pathname === `/v1/devices/${DEVICE_ID}`) return jsonResponse(successfulDevicePayload(-4));
+    throw new Error(`Unexpected synthetic request: ${call.method} ${call.url}`);
+  });
+
+  const result = await run([
+    "temperature",
+    "set",
+    "--app-level=-2",
+    "--duration-seconds=60",
+    "--apply",
+    "--confirm-write=temperature:set:-2:60",
+  ], commandDeps(mock.fetchImpl, {
+    now: () => new Date(nowMs),
+  }));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.verification.verification_elapsed_seconds, 5);
+  assert.equal(result.verification.verification_minimum_elapsed_seconds, 0);
+  assert.equal(result.verification.expected_remaining_duration_min_seconds, 55);
+  assert.equal(result.verification.expected_remaining_duration_max_seconds, 60);
+  assert.equal(result.verification.observed_duration_seconds, 60);
+  assert.equal(result.verification.duration_verified_against_plan, true);
+});
+
+test("temperature off succeeds only after backend state, override, and mapped hardware all clear", async () => {
+  const mock = recordingFetch((call) => {
+    const url = new URL(call.url);
+    if (call.method === "PUT") return jsonResponse({ accepted: true });
+    if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
+      return jsonResponse({
+        currentState: { type: "off" },
+        currentLevel: 0,
+        currentDeviceLevel: 0,
+        timeBased: { level: 0, durationSeconds: 0 },
+      });
+    }
+    if (url.pathname.endsWith("/current-device")) return jsonResponse({ id: DEVICE_ID, side: "solo" });
+    if (url.pathname === `/v1/devices/${DEVICE_ID}`) return jsonResponse(successfulDevicePayload(0));
+    throw new Error(`Unexpected synthetic request: ${call.method} ${call.url}`);
+  });
+
+  const result = await run([
+    "temperature",
+    "off",
+    "--apply",
+    "--confirm-write=temperature:off",
+  ], commandDeps(mock.fetchImpl));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.verification.app_state_verified, true);
+  assert.equal(result.verification.app_off_state_verified, true);
+  assert.equal(result.verification.app_current_level_zero, true);
+  assert.equal(result.verification.app_time_based_cleared, true);
+  assert.equal(result.verification.hardware_verified, true);
+  assert.equal(result.verification.app_state_confirmed_after_hardware, true);
+  assert.equal(mock.calls.at(-1).method, "GET");
+  assert.equal(new URL(mock.calls.at(-1).url).origin, APP_BASE);
+});
+
+test("temperature off can observe App synchronization that completes during hardware checking", async () => {
+  let temperatureReads = 0;
+  const mock = recordingFetch((call) => {
+    const url = new URL(call.url);
+    if (call.method === "PUT") return jsonResponse({ accepted: true });
+    if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
+      temperatureReads += 1;
+      return jsonResponse({
+        currentState: { type: temperatureReads === 1 ? "smart" : "off" },
+        currentLevel: 0,
+        currentDeviceLevel: 0,
+        timeBased: { level: 0, durationSeconds: 0 },
+      });
+    }
+    if (url.pathname.endsWith("/current-device")) return jsonResponse({ id: DEVICE_ID, side: "solo" });
+    if (url.pathname === `/v1/devices/${DEVICE_ID}`) return jsonResponse(successfulDevicePayload(0));
+    throw new Error(`Unexpected synthetic request: ${call.method} ${call.url}`);
+  });
+
+  const result = await run([
+    "temperature",
+    "off",
+    "--apply",
+    "--confirm-write=temperature:off",
+  ], commandDeps(mock.fetchImpl));
+
+  assert.equal(temperatureReads, 2);
+  assert.equal(result.ok, true);
+  assert.equal(result.verification.app_state_confirmed_after_hardware, true);
+  assert.equal(mock.calls.at(-1).method, "GET");
+  assert.equal(new URL(mock.calls.at(-1).url).origin, APP_BASE);
+});
+
 test("temperature off verifies the mapped physical side at zero and warns about a stale override", async () => {
   const mock = recordingFetch((call) => {
     const url = new URL(call.url);
@@ -465,6 +980,7 @@ test("temperature off verifies the mapped physical side at zero and warns about 
     if (url.origin === APP_BASE && url.pathname.endsWith("/temperature")) {
       return jsonResponse({
         currentState: { type: "off" },
+        currentLevel: 0,
         timeBased: { level: -20, durationSeconds: 1_200 },
       });
     }
@@ -484,11 +1000,16 @@ test("temperature off verifies the mapped physical side at zero and warns about 
   assert.equal(putCalls.length, 1);
   assert.deepEqual(JSON.parse(putCalls[0].body), { currentState: { type: "off" } });
   assert.equal(result.kind, "temperature_off_result");
-  assert.equal(result.ok, true);
-  assert.equal(result.verification.accepted_by_api, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.verification.app_state_verified, false);
+  assert.equal(result.verification.accepted_by_api, false);
   assert.equal(result.verification.hardware_verified, true);
+  assert.equal(result.verification.app_off_state_verified, true);
+  assert.equal(result.verification.app_current_level_zero, true);
+  assert.equal(result.verification.app_time_based_cleared, false);
+  assert.equal(result.verification.reason, "stale_time_based_override");
   assert.equal(result.verification.stale_time_based_override, true);
-  assert.match(result.warning, /non-zero time-based override/);
+  assert.match(result.warning, /timed override remains/);
   assert.equal(mock.calls.some((call) => new URL(call.url).pathname.endsWith("/current-device")), true);
   assert.equal(mock.calls.some((call) => new URL(call.url).pathname === `/v1/devices/${DEVICE_ID}`), true);
 });

@@ -3,7 +3,7 @@
 ## Requirements
 
 - Node.js 22 or newer.
-- An Eight Sleep account belonging to the person running the skill.
+- An Eight Sleep account personally controlled by the person running the skill. Authorization to operate a device does not authorize shared credentials.
 - Network access to the Eight Sleep mobile-app API domains.
 
 Install the skill from the repository root:
@@ -14,19 +14,25 @@ Install the skill from the repository root:
 ./install.sh both
 ```
 
-The installer refuses to replace an existing skill unless `--force` is present.
+The installer refuses to replace an existing installation unless `--force` is present. For Hermes it also refuses to install beside known legacy Eight Sleep skills. After reviewing them, `--backup-conflicts` moves those directories into a timestamped backup outside the skill discovery tree under `${HERMES_HOME:-$HOME/.hermes}/backups/manage-eight-sleep/` instead of deleting them:
+
+```bash
+./install.sh hermes --backup-conflicts
+```
+
+The installer never edits Hermes `config.yaml`.
 
 ## Create a token
 
-This project does not accept or store an email or password. It can reuse the token file produced by a separate, pinned community setup utility. On a fresh machine, run it once:
+This project does not accept or store an email or password. It can reuse the token file produced by the separate, pinned [`eight-sleep-mcp-unofficial@0.2.5`](https://www.npmjs.com/package/eight-sleep-mcp-unofficial/v/0.2.5) community setup utility. On a fresh machine, run it once:
 
 ```bash
 npx -y eight-sleep-mcp-unofficial@0.2.5 setup --client generic --privacy-mode summary
 ```
 
-Answer **No** when it asks whether to enable its write tools. The upstream `setup` command is interactive, stores the user's Eight Sleep credentials in `~/.eight-sleep-mcp/config.json`, writes a generic MCP snippet under `~/.eight-sleep-mcp/mcp-configs/`, and automatically performs the initial login. `--client generic` prevents it from editing Codex or Hermes configuration or installing a second Hermes skill. That behavior belongs to the third-party utility, not this skill. Review its documentation and security policy before using it.
+Answer **No** when it asks whether to enable its write tools. The upstream `setup` command is interactive, stores the user's Eight Sleep credentials in `~/.eight-sleep-mcp/config.json`, writes a generic MCP snippet under `~/.eight-sleep-mcp/mcp-configs/`, and automatically performs the initial login. `--client generic` prevents it from editing Codex or Hermes configuration or installing a second Hermes skill. That behavior belongs to the third-party utility, not this skill. Review the [pinned package](https://www.npmjs.com/package/eight-sleep-mcp-unofficial/v/0.2.5), its security documentation, and its [source repository](https://github.com/davidmosiah/eight-sleep-mcp) before using it.
 
-This skill only reads `~/.eight-sleep-mcp/tokens.json`; it never refreshes, rewrites, or deletes that file. On macOS or Linux, restrict both files to the current user:
+By default, the bundled CLI reads `~/.eight-sleep-mcp/tokens.json`; `EIGHT_SLEEP_TOKEN_PATH` can select another token file. If either `EIGHT_SLEEP_ACCESS_TOKEN` or `EIGHT_SLEEP_USER_ID` is present, both are required and that environment pair takes precedence over any token file. The CLI never refreshes, rewrites, or deletes token files. On macOS or Linux, restrict both setup files to the current user:
 
 ```bash
 chmod 600 ~/.eight-sleep-mcp/config.json ~/.eight-sleep-mcp/tokens.json
@@ -54,7 +60,23 @@ Then opt into read-only network checks:
 node <skill-directory>/scripts/eight-sleep.mjs doctor --check-api --json
 ```
 
-The JSON result must have both `ok: true` and `credentials.ready: true`; automation should not infer readiness from human-readable text. If the token is expired, run only `npx -y eight-sleep-mcp-unofficial@0.2.5 login`. This skill does not fall back to password authentication.
+For Hermes, also audit the active host without printing any credential values:
+
+```bash
+node <skill-directory>/scripts/eight-sleep.mjs doctor --check-hermes --json
+```
+
+The Hermes audit scans skill paths plus risk markers in `${HERMES_HOME:-$HOME/.hermes}/config.yaml` and `${HERMES_HOME:-$HOME/.hermes}/.env` locally. It detects competing `eight-sleep-mcp` or direct-API skills, legacy MCP blocks, persistent Eight Sleep credential keys, and a persistently enabled mutation flag. It returns no configuration values and does not persist or send scanned contents. A safe setup has `hermes.ready_for_single_skill_use: true`. If the audit finds an old MCP block, back up `config.yaml`, remove or disable that entire Eight Sleep block, and restart Hermes. Do not copy its values into a new file or chat. Use a token file or the explicit single-process environment credential pair described above; do not persist the pair in Hermes configuration.
+
+The JSON result must have both `ok: true` and `credentials.ready: true`; automation should not infer readiness from human-readable text. For a token file on macOS or Linux, `credentials.secure_permissions` must also be `true`; top-level `ok` is false when the file is readable by group or other local users.
+
+Recover expired authentication according to its source:
+
+- For the default token file, run `npx -y eight-sleep-mcp-unofficial@0.2.5 login`.
+- For a custom file, run `EIGHT_SLEEP_TOKEN_PATH="/absolute/path/to/tokens.json" npx -y eight-sleep-mcp-unofficial@0.2.5 login` with the same path.
+- For a single-process environment pair, replace both `EIGHT_SLEEP_ACCESS_TOKEN` and `EIGHT_SLEEP_USER_ID` together through the trusted secret manager, or unset both to use a token file. The login command cannot refresh injected values.
+
+Run `doctor --json` again after recovery. This skill does not fall back to password authentication.
 
 ## Uninstall
 

@@ -30,10 +30,16 @@ If any credential was exposed, remove it from public view, rotate or revoke it i
 
 ## Safe use
 
-- Each user must authenticate locally with their own Eight Sleep account. Never share accounts, tokens, or exported health data.
+- Each user must authenticate locally with an Eight Sleep account they personally control. Authorization to operate a device does not authorize sharing an account, password, token, setup file, or exported health data.
 - Keep mutation controls disabled unless the user intentionally enables device changes.
-- Store secrets outside the repository with permissions restricted to the local user.
+- Store secrets outside the repository with permissions restricted to the local user. Treat a POSIX token file as unsafe until `doctor` reports `credentials.secure_permissions: true`.
 - Use synthetic data for tests and continuous integration.
 - Treat unexpected API responses as possible upstream changes and avoid retrying device mutations blindly.
+
+## Migrating an existing Hermes setup
+
+Run `doctor --check-hermes` before enabling writes. Keep only one Eight Sleep control path, remove persistent mutation settings, and remove persistent Eight Sleep email, password, access-token, and user-ID keys from both `config.yaml` and `$HERMES_HOME/.env` after token-file setup succeeds. The audit scans those files and skill paths only on the local machine. It reports booleans and relative paths only and never returns, persists, or sends configuration values.
+
+Hermes transcripts and diagnostic logs may preserve prompts, commands, and tool output. Do not paste raw configuration or API payloads into a conversation. If a password, token, or authorization response was historically stored in a transcript or log, rotate or revoke the credential and review local backups before sharing or publishing them. Migration and log deletion are intentionally not automated.
 
 This project is not a medical device, clinical tool, or emergency monitoring system.

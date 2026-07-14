@@ -4,7 +4,7 @@
 
 This repository does not operate a hosted service and does not intentionally collect telemetry. When the skill is used, its bundled local CLI communicates directly with Eight Sleep's private, undocumented API and returns selected information to the user's agent environment. The agent client or model provider may process that information under its own privacy terms.
 
-Eight Sleep sleep and device records can contain sensitive health and personal information. Use this project only with an account you own or are authorized to access.
+Eight Sleep sleep and device records can contain sensitive health and personal information. Use this project only with an account personally controlled by the person running the skill and with equipment that person owns or is authorized to operate. Device authorization does not authorize sharing another person's credentials.
 
 ## Data handled
 
@@ -14,12 +14,13 @@ Depending on the command, the bundled CLI may process:
 - The account profile response during the opt-in `doctor --check-api` connectivity check; it is discarded without being returned or persisted
 - Requested sleep sessions, scores, stages, presence, timestamps, and related wellness fields present in the trends response
 - Temperature state and the current device record needed for hardware-side verification
+- For the optional Hermes audit, skill paths and risk markers read locally from `${HERMES_HOME:-$HOME/.hermes}/config.yaml` and `${HERMES_HOME:-$HOME/.hermes}/.env`; configuration values are not returned, persisted, or sent
 
 The CLI requests only the endpoints needed for the command and returns a summarized or redacted structure. It does not offer raw API output or persist API responses.
 
 ## Credentials and accounts
 
-- Every user must sign in locally with their own Eight Sleep account.
+- Every user must sign in locally with an Eight Sleep account they personally control.
 - Do not ask another person to share a password, token, or credential file.
 - Keep credentials outside the repository and outside synced or shared folders.
 - Never place credentials in source files, prompts, issue reports, screenshots, shell history, or continuous-integration secrets used by untrusted pull requests.
@@ -34,6 +35,10 @@ A Pod may return a combined device record containing both sides. To map the requ
 Exports must be explicitly requested by the user, written to a user-selected location, and protected so only that user can read them. Prefer a redacted export over a raw backup. Tell the user where the file was written and delete temporary copies when they are no longer needed.
 
 Do not commit exports, caches, logs, token stores, or local configuration. The repository's `.gitignore` provides common exclusions, but it is not a substitute for reviewing every commit before publication.
+
+## Agent transcripts and diagnostics
+
+Hermes, Codex, or another agent host may retain conversation transcripts, commands, and tool output independently of this repository. Never print tokens, authorization headers, raw profile responses, raw sleep payloads, or complete configuration files for troubleshooting. The optional Hermes audit scans `config.yaml`, `$HERMES_HOME/.env`, and skill paths locally and returns only status booleans, recommendations, and relative skill paths. It does not return, persist, or send configuration values, and it does not read conversation history.
 
 ## Public support channels
 
