@@ -60,6 +60,9 @@ test("installer handles both hosts atomically and refuses accidental replacement
   const first = install("both");
   assert.equal(first.status, 0, first.stderr);
   assert.ok(first.stdout.includes(path.join(hermesHome, "skills", "manage-eight-sleep", "scripts", "eight-sleep.mjs")));
+  assert.match(first.stdout, /does not connect WeChat/);
+  assert.match(first.stdout, /Feishu\/Lark, Telegram/);
+  assert.match(first.stdout, /hermes gateway setup/);
 
   const codexSkill = path.join(codexHome, "skills", "manage-eight-sleep", "SKILL.md");
   const hermesSkill = path.join(hermesHome, "skills", "manage-eight-sleep", "SKILL.md");

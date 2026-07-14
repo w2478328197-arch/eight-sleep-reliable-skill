@@ -22,6 +22,16 @@ The installer refuses to replace an existing installation unless `--force` is pr
 
 The installer never edits Hermes `config.yaml`.
 
+## Messaging channels are separate
+
+Installing this skill does not install or configure a model provider, sign in to a messaging app, create a bot, or start a messaging gateway. A local Codex, Hermes, or other supported host can use the skill after installation, but WeChat, Feishu/Lark, Telegram, and other messaging apps remain disconnected until the selected agent or gateway is configured separately.
+
+For Hermes, first finish model setup, Eight Sleep authentication, and the readiness checks below. Then run `hermes gateway setup`, choose a supported platform, restrict access to authorized user IDs, and keep `hermes gateway` running. Prefer direct messages and disable group access unless it is deliberately required because sleep data and Pod control are sensitive.
+
+See the official Hermes guides for [Weixin](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/weixin), [Feishu/Lark](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/feishu), and [Telegram](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/telegram). Other agents and gateways require their own channel setup.
+
+A messaging channel changes only where the request arrives. It never authorizes a write by itself and must not bypass the skill's dry run, exact current-turn confirmation, or App-backend and hardware verification. Never place Eight Sleep tokens, model keys, bot tokens, or channel secrets in chat messages.
+
 ## Create a token
 
 This project does not accept or store an email or password. It can reuse the token file produced by the separate, pinned [`eight-sleep-mcp-unofficial@0.2.5`](https://www.npmjs.com/package/eight-sleep-mcp-unofficial/v/0.2.5) community setup utility. On a fresh machine, run it once:
@@ -31,6 +41,8 @@ npx -y eight-sleep-mcp-unofficial@0.2.5 setup --client generic --privacy-mode su
 ```
 
 Answer **No** when it asks whether to enable its write tools. The upstream `setup` command is interactive, stores the user's Eight Sleep credentials in `~/.eight-sleep-mcp/config.json`, writes a generic MCP snippet under `~/.eight-sleep-mcp/mcp-configs/`, and automatically performs the initial login. `--client generic` prevents it from editing Codex or Hermes configuration or installing a second Hermes skill. That behavior belongs to the third-party utility, not this skill. Review the [pinned package](https://www.npmjs.com/package/eight-sleep-mcp-unofficial/v/0.2.5), its security documentation, and its [source repository](https://github.com/davidmosiah/eight-sleep-mcp) before using it.
+
+The **No** choice disables only the upstream MCP server's mutation tools. It does not remove the guarded CLI's separately gated write workflow. On this skill path, use the pinned utility only for local authentication; do not also configure its MCP server in the same agent host.
 
 By default, the bundled CLI reads `~/.eight-sleep-mcp/tokens.json`; `EIGHT_SLEEP_TOKEN_PATH` can select another token file. If either `EIGHT_SLEEP_ACCESS_TOKEN` or `EIGHT_SLEEP_USER_ID` is present, both are required and that environment pair takes precedence over any token file. The CLI never refreshes, rewrites, or deletes token files. On macOS or Linux, restrict both setup files to the current user:
 

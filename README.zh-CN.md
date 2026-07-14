@@ -30,7 +30,7 @@
 - 支持 MCP 或可以调用本地 Skill/CLI 的 AI 工具，例如 Codex、Hermes、WorkBuddy、Claude、ChatGPT；具体连接方式因客户端而异
 - 由 Skill 使用者本人控制的 Eight Sleep 账号
 - 使用本仓库 `install.sh` 时需要 macOS 或 Linux；直接 MCP 模式取决于所选客户端和平台
-- 微信不是必需项；需要微信入口时，请选择同时支持 MCP 工具和微信渠道的 Agent 或网关，例如 Hermes
+- 消息 App 不是必需项，并且必须在所选 Agent 或网关中单独配置。安装本项目不会自动连接微信、飞书/Lark、Telegram 或其他聊天服务
 
 只需要选择一个 AI 客户端。Codex 和 Hermes 都是接入示例，不是项目依赖。
 
@@ -43,22 +43,28 @@
 | Claude Desktop 和其他支持本地命令式 `stdio` MCP Server 的客户端 | 在客户端的 MCP 配置中运行固定版本的上游 MCP Server |
 | WorkBuddy、CodeBuddy 或其他 MCP 客户端 | 只使用该客户端明确支持的传输和配置格式；使用下面的 JSON 前先确认它支持本地命令 |
 | Codex | 使用本仓库的安全 Skill/CLI 安装方式；客户端支持时也可配置上游 MCP |
-| Hermes | 使用安全 Skill/CLI 或上游 MCP；还可以把 Hermes 作为可选的微信网关 |
+| Hermes | 使用安全 Skill/CLI 或上游 MCP；需要微信、飞书/Lark、Telegram 等入口时，再单独配置 Hermes 消息网关 |
 | ChatGPT Web 或自定义 ChatGPT App | 在受支持的套餐中连接远程 MCP；本仓库和上游包都不提供已加固的公网端点 |
 
 不要在同一个客户端中同时加载上游 MCP 和本仓库的安全 Skill/CLI。它们是两条独立控制路径，写入控制方式也不同。
 
-### 可选的 Hermes + 微信桥梁
+### 消息 App 需要单独配置
 
-Eight Sleep 并不依赖 Hermes。需要微信入口或独立 Agent 网关时，可以使用下面的组合：
+安装 Skill 或添加 MCP Server 只会让 AI Host 获得 Eight Sleep 能力。它**不会**安装或配置 AI 模型，不会登录消息 App，不会创建机器人，也不会启动消息网关。只有另行配置并持续运行兼容的 Agent 或网关后，才可以从微信、飞书/Lark、Telegram 或其他 App 发起对话。
 
 ```text
-微信 ↔ Hermes
-        ├── 模型：OpenAI API 兼容服务商、DeepSeek 或其他 Hermes Provider
-        └── 工具：Eight Sleep MCP 或本仓库的安全 Skill/CLI
+微信 / 飞书 / Lark / Telegram / 其他受支持的 App
+                         ↕
+                    Agent 或消息网关
+                     ├── 模型 Provider
+                     └── Eight Sleep 安全 Skill/CLI 或上游 MCP
 ```
 
-在这种组合中，Hermes 是接入微信并调用所选模型 Provider 的 Agent，并不是让 ChatGPT 客户端本身连接微信。本仓库不会安装或配置 Hermes、微信或任何模型 Provider。模型 Provider、消息渠道和 Eight Sleep 接入是三个独立选择；实际费用取决于具体账号、模型和套餐。
+Codex 和 Claude Code 可以在本机使用安全 Skill，但安装 Skill 不会让它们自动变成微信或 Telegram 机器人。Hermes 是一个可选网关，官方提供 Weixin、飞书/Lark 和 Telegram 适配器。其他 Agent 或网关也可以使用，但必须同时支持所选消息渠道和本项目的一种 Eight Sleep 接入路径。
+
+模型 Provider、消息渠道和 Eight Sleep 接入是三个相互独立的选择。本仓库只负责 Eight Sleep 部分。模型或消息服务的实际费用取决于所选服务商、账号和套餐。
+
+Eight Sleep token 文件只应保留在运行连接器或安全 CLI 的电脑，绝不能发送给模型或消息平台。但是用户请求和返回的睡眠摘要仍可能按照各自政策被所选 Agent、模型 Provider 和消息 App 处理或保留；启用渠道前需要分别检查这些服务的隐私设置。
 
 ### 1. 准备本地 Eight Sleep 连接
 
@@ -72,7 +78,9 @@ chmod 600 ~/.eight-sleep-mcp/config.json \
   ~/.eight-sleep-mcp/tokens.json
 ```
 
-如果设置工具询问是否启用写入工具，请选择 **No**。凭据只保存在本机，不要提交、上传、截图或分享 token 文件。
+如果设置工具询问是否启用写入工具，请选择 **No**。这里关闭的只是上游 MCP Server 自己的写入工具；本仓库的安全 Skill/CLI 以后仍可通过独立的 dry run、确认和验证流程执行温控修改。在安全 Skill/CLI 路径中，这个工具只用于创建本地认证文件，不要再把它的 MCP Server 同时加载到同一个 Host。
+
+凭据文件只保存在本机，但登录过程仍会连接 Eight Sleep，请求结果也可能交给所选 Agent 或模型 Provider 处理。不要提交、上传、截图或分享 token 文件。
 
 ### 2A. 接入本地 MCP 客户端
 
@@ -118,6 +126,8 @@ chmod +x install.sh
 
 安装器默认不会覆盖已有安装；需要覆盖时使用 `--force`。如果 Hermes 报告 Eight Sleep skill 冲突，请先检查路径，再使用 `--backup-conflicts`。安装完成后请开始新的 Codex 或 Hermes 会话。
 
+此时只完成了本地 Eight Sleep Skill 安装，还没有连接任何消息 App。请先完成下面的检查；只有本地环境就绪后，才继续配置可选的消息渠道。
+
 ### 3. 检查安全 Skill/CLI
 
 为当前终端设置已安装的 Skill 路径：
@@ -150,6 +160,32 @@ node "$SKILL_DIR/scripts/eight-sleep.mjs" doctor --check-hermes --json
 ```bash
 npx -y eight-sleep-mcp-unofficial@0.2.5 login
 ```
+
+### 4. 可选：连接消息 App
+
+只有希望通过微信、飞书/Lark、Telegram 或其他 App 对话时才需要此步骤。消息连接由 Agent 或网关负责，不属于本仓库的安装内容。
+
+使用 Hermes 时：
+
+1. 先确认所选模型可以在普通 Hermes 会话中正常对话，并确认上面的 Eight Sleep 检查已经通过。
+2. 运行 `hermes gateway setup`，选择 Weixin、飞书/Lark、Telegram 或其他受支持的平台。
+3. 只允许本人或明确授权的账号访问。睡眠数据和 Pod 控制属于敏感信息，优先使用私聊；除非确有需要，否则保持群聊访问关闭。
+4. 运行 `hermes gateway` 并让网关持续在线。
+5. 先从消息 App 发送只读请求，例如“查看我当前的 Pod 温控状态”，验证完整链路后再尝试温控操作。
+
+Hermes 各渠道至少完成以下限制：
+
+| 渠道 | 使用前的最低限制 |
+|---|---|
+| 个人微信 Weixin | 设置 `WEIXIN_DM_POLICY=allowlist`，在 `WEIXIN_ALLOWED_USERS` 中填写允许的用户 ID，并保持 `WEIXIN_GROUP_POLICY=disabled`。该方式使用独立的 iLink Bot 身份；私聊最可靠，普通微信群消息可能无法送达。 |
+| 飞书/Lark | 设置 `FEISHU_ALLOWED_USERS`；除非明确批准某个群，否则保持 `FEISHU_GROUP_POLICY=disabled`。 |
+| Telegram | 设置 `TELEGRAM_ALLOWED_USERS`；除非明确需要群聊，否则不要把机器人加入或授权到群组。 |
+
+具体配置见 Hermes 官方的 [微信 Weixin](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/weixin)、[飞书/Lark](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/feishu) 和 [Telegram](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/telegram) 文档。使用其他 Agent 或网关时，请按照该产品自己的消息渠道文档配置。
+
+使用腾讯 WorkBuddy 时，导入 Skill 或添加 MCP Server 同样不会自动连接机器人。还需要在 WorkBuddy 中单独配置它支持的 Bot 或消息渠道；可用渠道和配置方式可能因客户端版本与地区而异。具体入口见官方 [WorkBuddy 文档](https://www.workbuddy.cn/)。
+
+通过消息 App 操作不会绕过安全写入流程。温控修改仍然需要当前对话中明确的档位和时长、dry run、单独确认，以及 App 后端和硬件验证全部成功。不要在聊天中分享 Eight Sleep token、模型密钥、机器人 token 或渠道密钥。
 
 ## 在 Agent 中使用
 

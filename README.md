@@ -30,7 +30,7 @@ This repository provides a guarded local Skill and CLI for Eight Sleep sleep sum
 - An AI tool that supports MCP or can invoke a local Skill/CLI, such as Codex, Hermes, WorkBuddy, Claude, or ChatGPT; the connection method varies by client
 - An Eight Sleep account controlled by the person using the skill
 - macOS or Linux when using this repository's `install.sh`; direct MCP support depends on the selected client and platform
-- WeChat is optional; when it is required, use an agent or gateway that supports both MCP tools and a WeChat channel, such as Hermes
+- Messaging apps are optional and configured separately in the selected agent or gateway. Installing this repository does not connect WeChat, Feishu/Lark, Telegram, or any other chat service
 
 Only one AI host is required. Codex and Hermes are integration examples, not project dependencies.
 
@@ -43,22 +43,28 @@ Choose one Eight Sleep control path inside each AI host:
 | Claude Desktop and other clients that support a local command-based `stdio` MCP server | Run the pinned upstream MCP server through the client's MCP configuration |
 | WorkBuddy, CodeBuddy, or another MCP client | Use only a transport and configuration format supported by that specific client; confirm local-command support before using the JSON below |
 | Codex | Use this repository's guarded Skill/CLI installer, or configure the upstream MCP server if the client supports it |
-| Hermes | Use the guarded Skill/CLI or upstream MCP; Hermes can also provide an optional WeChat gateway |
+| Hermes | Use the guarded Skill/CLI or upstream MCP; separately configure the Hermes gateway when WeChat, Feishu/Lark, Telegram, or another supported channel is needed |
 | ChatGPT Web or a custom ChatGPT app | Requires remote MCP on a supported plan. Neither this repository nor the upstream package provides a hardened public endpoint |
 
 Do not load the direct upstream MCP and this repository's guarded Skill/CLI in the same host at the same time. They are separate control paths with different write controls.
 
-### Optional Hermes + WeChat bridge
+### Messaging apps are a separate step
 
-Hermes is not required for Eight Sleep. It is useful when a WeChat entry point or a separate agent gateway is needed:
+Installing the Skill or adding the MCP server connects an AI host to Eight Sleep only. It does **not** install or configure an AI model, sign in to a messaging app, create a bot, or start a messaging gateway. WeChat, Feishu/Lark, Telegram, and other apps become usable only after a compatible agent or gateway has been configured for that channel and is running.
 
 ```text
-WeChat ↔ Hermes
-          ├── model: an OpenAI API-compatible provider, DeepSeek, or another Hermes provider
-          └── tool: Eight Sleep MCP or this repository's guarded Skill/CLI
+WeChat / Feishu/Lark / Telegram / another supported app
+                              ↕
+                         Agent or gateway
+                          ├── model provider
+                          └── Eight Sleep guarded Skill/CLI or upstream MCP
 ```
 
-In this topology, Hermes is the agent connected to WeChat and calls the selected model provider; it does not make the ChatGPT client itself connect to WeChat. This repository does not install or configure Hermes, WeChat, or any model provider. The model provider, messaging channel, and Eight Sleep connection are independent choices. Actual cost depends on the selected account, model, and plan.
+Codex and Claude Code can use the guarded Skill locally, but installing it does not turn either client into a messaging bot. Hermes is one optional gateway with documented Weixin, Feishu/Lark, and Telegram adapters. Another agent or gateway is also suitable when it supports both the selected messaging channel and one of this project's Eight Sleep connection paths.
+
+The model provider, messaging channel, and Eight Sleep connection are three independent choices. This repository configures only the Eight Sleep part. Actual model or messaging cost depends on the selected provider, account, and plan.
+
+Eight Sleep token files stay on the machine running the connector or guarded CLI and must never be sent to the model or messaging platform. Requests and returned sleep summaries may still be processed or retained by the selected agent, model provider, and messaging app under their own policies; review those services before enabling a channel.
 
 ### 1. Prepare the local Eight Sleep connection
 
@@ -72,7 +78,9 @@ chmod 600 ~/.eight-sleep-mcp/config.json \
   ~/.eight-sleep-mcp/tokens.json
 ```
 
-Choose **No** if the setup utility asks whether to enable mutation tools. Credentials remain on the local machine. Never commit, upload, screenshot, or share the token files.
+Choose **No** if the setup utility asks whether to enable mutation tools. This disables only the upstream MCP server's write tools. The guarded Skill/CLI can still perform a later temperature change through its separate dry-run, confirmation, and verification workflow. On the guarded Skill/CLI path, this utility is used only to create local authentication files; do not also load its MCP server into the same host.
+
+Credential files remain on the local machine. Authentication still contacts Eight Sleep, and requested results may be processed by the selected agent or model provider. Never commit, upload, screenshot, or share the token files.
 
 ### 2A. Connect a local MCP client
 
@@ -118,6 +126,8 @@ Choose an installation target:
 
 The installer does not overwrite an existing installation unless `--force` is supplied. If Hermes reports a conflicting Eight Sleep skill, review the paths and rerun with `--backup-conflicts`. Start a new Codex or Hermes session after installation.
 
+At this point the local Eight Sleep Skill is installed, but no messaging app is connected. Complete the checks below first. Configure an optional messaging channel only after the local setup is ready.
+
 ### 3. Check the guarded Skill/CLI
 
 Set the installed skill path for the current shell:
@@ -150,6 +160,32 @@ Refresh an expired default token with:
 ```bash
 npx -y eight-sleep-mcp-unofficial@0.2.5 login
 ```
+
+### 4. Optional: connect a messaging app
+
+Use this step only when the user wants to chat through WeChat, Feishu/Lark, Telegram, or another supported app. The agent or gateway—not this repository—owns the messaging connection.
+
+For Hermes:
+
+1. Confirm that the selected model works in a normal Hermes conversation and that the Eight Sleep checks above pass.
+2. Run `hermes gateway setup` and select Weixin, Feishu/Lark, Telegram, or another supported platform.
+3. Restrict the platform to the authorized user account. Because sleep data and Pod control are sensitive, prefer direct messages and keep group access disabled unless it is deliberately required.
+4. Start and keep the gateway running with `hermes gateway`.
+5. Send a read-only request from the messaging app, such as “Check my current Pod temperature state,” before attempting a temperature change.
+
+Minimum Hermes channel restrictions:
+
+| Channel | Minimum restriction before use |
+|---|---|
+| Personal WeChat through Weixin | Set `WEIXIN_DM_POLICY=allowlist`, list the authorized IDs in `WEIXIN_ALLOWED_USERS`, and keep `WEIXIN_GROUP_POLICY=disabled`. This uses a separate iLink bot identity; direct messages are the reliable path, and ordinary WeChat groups may not deliver events. |
+| Feishu/Lark | Set `FEISHU_ALLOWED_USERS` and keep `FEISHU_GROUP_POLICY=disabled` unless an approved group is deliberately required. |
+| Telegram | Set `TELEGRAM_ALLOWED_USERS`; do not add or authorize the bot in groups unless group access is deliberately required. |
+
+See the official Hermes guides for [Weixin](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/weixin), [Feishu/Lark](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/feishu), and [Telegram](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/telegram). Other agents and gateways must be configured through their own channel documentation.
+
+For Tencent WorkBuddy, importing a Skill or adding an MCP server still does not connect a bot. Configure the supported bot or channel separately in WorkBuddy; availability and setup may vary by client version and region. See the official [WorkBuddy documentation](https://www.workbuddy.cn/).
+
+Messaging access never bypasses the guarded write workflow. A temperature change still requires an exact current-turn level and duration, a dry run, a separate confirmation, and successful App-backend plus hardware verification. Do not share Eight Sleep tokens, model keys, bot tokens, or channel secrets in chat.
 
 ## Use with an agent
 

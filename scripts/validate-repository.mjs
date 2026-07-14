@@ -8,6 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillRoot = path.join(root, "skills", "manage-eight-sleep");
 const required = [
   "README.md",
+  "README.zh-CN.md",
   "LICENSE",
   "SECURITY.md",
   "PRIVACY.md",
@@ -26,6 +27,40 @@ for (const relative of required) {
     await access(path.join(root, relative));
   } catch {
     failures.push(`missing required file: ${relative}`);
+  }
+}
+
+const readmeChecks = [
+  [
+    "README.md",
+    [
+      "Messaging apps are a separate step",
+      "does **not** install or configure an AI model",
+      "WeChat",
+      "Feishu/Lark",
+      "Telegram",
+      "hermes gateway setup",
+      "Messaging access never bypasses the guarded write workflow",
+    ],
+  ],
+  [
+    "README.zh-CN.md",
+    [
+      "消息 App 需要单独配置",
+      "**不会**安装或配置 AI 模型",
+      "微信",
+      "飞书/Lark",
+      "Telegram",
+      "hermes gateway setup",
+      "通过消息 App 操作不会绕过安全写入流程",
+    ],
+  ],
+];
+
+for (const [relative, markers] of readmeChecks) {
+  const source = await readFile(path.join(root, relative), "utf8");
+  for (const marker of markers) {
+    if (!source.includes(marker)) failures.push(`${relative} is missing messaging guidance: ${marker}`);
   }
 }
 
