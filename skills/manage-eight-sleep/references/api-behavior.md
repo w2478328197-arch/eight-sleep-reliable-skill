@@ -33,22 +33,28 @@ The three-step write sequence reflects behavior observed on the maintainer's Pod
 2. set the raw level while retaining smart state;
 3. set a non-zero, short `timeBased` override.
 
-Each PUT is attempted once. A write timeout may mean the server applied the request even though the response was lost, so retrying blindly could extend or duplicate an override.
+Duration is mandatory and must be 60–14,400 seconds; there is no implicit one-hour write default.
 
-After the writes, the CLI reads the temperature state and resolves the current user's side from the device record. A valid result requires both:
+Each PUT is attempted once. A write timeout may mean the server applied the request even though the response was lost, so retrying blindly could extend or duplicate an override. If an early step has an unknown outcome, later required steps are not attempted and matching old state cannot turn that command into a success. Only an unknown outcome on the final timed-override step can be corroborated by exact App-facing and hardware read-back.
 
-- API state records smart mode, the requested current level, and a non-zero matching timed override;
-- temperature or device-side telemetry is non-zero in the requested heating/cooling direction (or explicitly zero for a neutral/off verification).
+After the writes, the CLI freshly reads the temperature endpoint used by the mobile-app backend and resolves the current user's side from the device record. A valid result requires both:
+
+- App-facing backend state records smart mode, the requested current level, and a non-zero matching timed override;
+- for a nonzero setting, a mapped-side actual/current numeric signal is non-zero in the requested heating/cooling direction, any reported device target exactly matches the request, and an explicit activity flag is not false; for neutral/off, see the zero-target rules below.
 
 Hardware can take tens of seconds to start moving. If it cannot be confirmed within the bounded polling window, the command exits as unverified even when the API accepted the target.
 
-A device target field by itself proves only that a target was recorded; it does not prove physical movement. Hardware verification uses an actual/current heating signal. When the later, user-mapped device record supplies that signal, it takes precedence over an older temperature-endpoint value; an explicit conflict fails closed. Device user-ID mapping also takes precedence over a possibly stale declared side so a linked sleeper's telemetry cannot be mistaken for the requesting user's side.
+A device target field by itself proves only that a target was recorded; it does not prove physical movement. For a nonzero setting, hardware verification still requires an actual/current numeric heating signal in the requested direction. If an activity boolean is present, `false` fails verification; if one or more target fields are present, every value must exactly match the requested raw target. When the later, user-mapped device record supplies an actual/current signal, it takes precedence over an older temperature-endpoint value. Any device target conflict fails closed. Device user-ID mapping also takes precedence over a possibly stale declared side so a linked sleeper's telemetry cannot be mistaken for the requesting user's side.
 
-`accepted_by_api` means the post-write read-back contains smart state, the requested current raw level, and a time-based override whose level and duration match the plan within a small polling tolerance. A successful PUT alone never sets this flag. `hardware_verified` separately requires matching device evidence.
+For neutral or off verification, a zero actual/current numeric signal is sufficient only when no activity or target field conflicts. The mapped device can alternatively prove that its controller has stopped by reporting an explicit inactive state together with an exact target of zero. That inactive-plus-zero-target evidence is accepted even when a numeric heating-level field is lagging at a nonzero value. An active `true` value or any nonzero target fails closed.
 
-After an unverified result, `temperature verify --app-level <target>` can repeat only the read-back and hardware checks without issuing a write. It cannot extend an old authorization. A later write requires a new explicit user instruction and a new dry run.
+`app_state_verified` means the post-write App-facing backend read-back contains smart state, the requested current raw level, and a time-based override whose level and duration match the plan. During a write, expected remaining duration is reduced by the actual time elapsed since the timed override began, then given a small jitter allowance capped at 10 seconds. A separate read-only verify treats its supplied duration as the expected remaining duration and uses a bounded tolerance of at most 10%, capped at 120 seconds. This lets a legitimate 60-second plan verify on a later hardware poll without letting a one-second old residual immediately impersonate it. After candidate hardware success, the CLI performs one final backend read so the operation ends by confirming logical state. `accepted_by_api` is retained as a compatibility alias. A successful PUT alone never sets either flag. `hardware_verified` separately requires matching device evidence. `app_ui_observed` is always false because this CLI does not inspect the phone screen.
 
-Schedules and App actions can replace or leave behind a time-based override. The CLI limits a temporary override to 60–14,400 seconds and reports a stale non-zero override after an off command. It does not claim that the private API cleared it.
+For off, App verification is stricter: the state must be `off`, the current level must be zero, and any timed override must be fully cleared. A stale level or duration makes `app_state_verified` false even if the hardware has already reached zero. A response that retains only a positive duration placeholder, even with a zero or absent override level, is therefore conservatively treated as an uncleared override. The command must report the overall result as unverified in that split state and must not automatically rewrite; any new write requires a new current-turn instruction and dry run.
+
+After an unverified result, `temperature verify --app-level <target> --duration-seconds <expected-remaining-duration>` can repeat the read-back and hardware checks without issuing a write. Omitting duration verifies only that a matching positive override remains active, not that its remaining duration matches the original plan. `temperature verify --off` checks the strict off state. Neither command can extend an old authorization. A later write requires a new explicit user instruction and a new dry run.
+
+Schedules and App actions can replace or leave behind a time-based override. The CLI limits a temporary override to 60–14,400 seconds and reports a stale override after an off command. It does not claim that the private API cleared it and does not retry the write. A phone UI can also cache an older screen; when read-back is verified but the UI looks stale, refresh the App instead of issuing another mutation.
 
 ## Failure handling
 

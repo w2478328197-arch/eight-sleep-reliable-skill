@@ -98,6 +98,9 @@ export function numberOption(value, name, { integer = true, min, max, fallback }
     if (fallback !== undefined) return fallback;
     throw new UsageError(`Missing --${name}.`);
   }
+  if (value === null || typeof value === "boolean" || (typeof value === "string" && value.trim() === "")) {
+    throw new UsageError(`--${name} requires a value.`);
+  }
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || (integer && !Number.isInteger(parsed))) {
     throw new UsageError(`--${name} must be ${integer ? "an integer" : "a number"}.`);
@@ -161,11 +164,7 @@ export function resolveDateRange(options, now = new Date()) {
 }
 
 export function appLevelToRaw(appLevel) {
-  const value = Number(appLevel);
-  if (!Number.isInteger(value) || value < -10 || value > 10) {
-    throw new UsageError("App level must be an integer from -10 to 10.");
-  }
-  return value * 10;
+  return numberOption(appLevel, "app-level", { min: -10, max: 10 }) * 10;
 }
 
 export function rawLevelToApp(rawLevel) {
@@ -496,7 +495,7 @@ export class EightSleepClient {
       Authorization: `Bearer ${this.credentials.accessToken}`,
       Accept: "application/json",
       "Content-Type": "application/json",
-      "User-Agent": "manage-eight-sleep/0.1.0",
+      "User-Agent": "manage-eight-sleep/0.2.0",
     };
   }
 
@@ -682,20 +681,39 @@ function resolveSide(currentDevice, device, userId) {
 function deviceSignal(device, side) {
   if (!device || !side) return {};
   const root = device?.result && typeof device.result === "object" ? device.result : device;
-  const actualCandidates = [
+  const activityCandidates = [
     `${side}NowHeating`,
+    `${side}.nowHeating`,
+  ];
+  const actualCandidates = [
     `${side}CurrentLevel`,
     `${side}HeatingLevel`,
-    `${side}.nowHeating`,
     `${side}.currentLevel`,
     `${side}.heatingLevel`,
   ];
   const targetCandidates = [
+    `${side}TargetHeatingLevel`,
     `${side}TargetLevel`,
+    `${side}.targetHeatingLevel`,
     `${side}.targetLevel`,
   ];
-  const signal = {};
+  const signal = { targetValues: [] };
+  for (const field of activityCandidates) {
+    const value = valueAt(root, [field]);
+    if (typeof value === "boolean") {
+      signal.activeField = field;
+      signal.active = value;
+      break;
+    }
+    const numeric = finite(value);
+    if (numeric !== undefined) {
+      signal.field = field;
+      signal.value = numeric;
+      break;
+    }
+  }
   for (const field of actualCandidates) {
+    if (signal.value !== undefined) break;
     const value = finite(valueAt(root, [field]));
     if (value !== undefined) {
       signal.field = field;
@@ -706,9 +724,11 @@ function deviceSignal(device, side) {
   for (const field of targetCandidates) {
     const value = finite(valueAt(root, [field]));
     if (value !== undefined) {
-      signal.targetField = field;
-      signal.targetValue = value;
-      break;
+      signal.targetValues.push({ field, value });
+      if (signal.targetValue === undefined) {
+        signal.targetField = field;
+        signal.targetValue = value;
+      }
     }
   }
   return signal;
@@ -720,7 +740,56 @@ function alignedWithTarget(observed, target) {
   return Math.abs(observed) >= 1 && Math.sign(observed) === Math.sign(target);
 }
 
-export function verifyTemperature({ temperature, currentDevice, device, targetRaw, expectedDuration, userId }) {
+function assessHardwareSignal(signal, fallbackObserved, target) {
+  const targetValues = signal.targetValues ?? [];
+  const targetKnown = targetValues.length > 0;
+  const targetConflict = targetKnown && targetValues.some((candidate) => candidate.value !== target);
+  const activityConflict = target === 0 ? signal.active === true : signal.active === false;
+  const observed = signal.value ?? fallbackObserved;
+  const inactiveAtZeroTarget = target === 0
+    && signal.active === false
+    && targetKnown
+    && !targetConflict;
+  const verified = !targetConflict
+    && !activityConflict
+    && (inactiveAtZeroTarget || alignedWithTarget(observed, target));
+  const reason = verified
+    ? undefined
+    : targetConflict
+      ? "device_target_conflict"
+      : activityConflict
+        ? target === 0 ? "device_active_for_zero_target" : "device_inactive_for_nonzero_target"
+        : observed === undefined
+          ? "actual_signal_missing"
+          : "actual_signal_not_aligned";
+  return {
+    verified,
+    observed,
+    targetKnown,
+    targetConflict,
+    targetMatches: targetKnown ? !targetConflict : undefined,
+    reason,
+    basis: verified
+      ? inactiveAtZeroTarget
+        ? "device_inactive_with_zero_target"
+        : signal.value !== undefined
+          ? "device_actual_level"
+          : "temperature_actual_level"
+      : undefined,
+  };
+}
+
+export function verifyTemperature({
+  temperature,
+  currentDevice,
+  device,
+  targetRaw,
+  expectedDuration,
+  verificationElapsedSeconds,
+  verificationMinimumElapsedSeconds,
+  userId,
+  checkedAt,
+}) {
   const summary = summarizeTemperature(temperature);
   const stateSmart = typeof summary.state === "string" && [
     "smart",
@@ -732,53 +801,138 @@ export function verifyTemperature({ temperature, currentDevice, device, targetRa
   ].includes(summary.state.toLowerCase());
   const currentTargetRecorded = summary.current_level_raw === targetRaw;
   const durationSeconds = summary.time_based?.duration_seconds ?? 0;
+  const elapsedKnown = Number.isFinite(verificationElapsedSeconds);
+  const elapsedSeconds = elapsedKnown ? Math.max(0, verificationElapsedSeconds) : undefined;
+  const minimumElapsedSeconds = elapsedKnown
+    ? Number.isFinite(verificationMinimumElapsedSeconds)
+      ? Math.min(elapsedSeconds, Math.max(0, verificationMinimumElapsedSeconds))
+      : elapsedSeconds
+    : undefined;
+  const expectedRemainingDurationMin = expectedDuration === undefined
+    ? undefined
+    : elapsedKnown
+      ? Math.max(0, expectedDuration - elapsedSeconds)
+      : expectedDuration;
+  const expectedRemainingDurationMax = expectedDuration === undefined
+    ? undefined
+    : elapsedKnown
+      ? Math.max(0, expectedDuration - minimumElapsedSeconds)
+      : expectedDuration;
+  const durationToleranceSeconds = expectedDuration === undefined
+    ? undefined
+    : elapsedKnown
+      ? Math.min(10, Math.max(2, Math.ceil(expectedDuration * 0.05)))
+      : Math.min(120, Math.max(2, Math.ceil(expectedDuration * 0.1)));
   const durationMatches = expectedDuration === undefined
     ? durationSeconds > 0
-    : durationSeconds > 0
-      && durationSeconds <= expectedDuration
-      && durationSeconds >= Math.max(1, expectedDuration - 120);
+    : (!elapsedKnown || expectedRemainingDurationMax > 0)
+      && durationSeconds > 0
+      && durationSeconds <= Math.min(expectedDuration, expectedRemainingDurationMax + durationToleranceSeconds)
+      && durationSeconds >= Math.max(1, expectedRemainingDurationMin - durationToleranceSeconds);
   const timedTargetRecorded = summary.time_based?.level_raw === targetRaw && durationMatches;
+  const appStateVerified = Boolean(stateSmart && currentTargetRecorded && timedTargetRecorded);
   const side = resolveSide(currentDevice, device, userId);
   const signal = deviceSignal(device, side);
-  const temperatureHardware = alignedWithTarget(summary.device_level_raw, targetRaw);
-  const deviceHardware = alignedWithTarget(signal.value, targetRaw);
-  const hardwareVerified = Boolean(side && (signal.value !== undefined ? deviceHardware : temperatureHardware));
-  const observedDeviceLevel = signal.value ?? summary.device_level_raw;
+  const hardware = assessHardwareSignal(signal, summary.device_level_raw, targetRaw);
+  const hardwareVerified = Boolean(side && hardware.verified);
+  const observedDeviceLevel = hardware.observed;
   return {
-    accepted_by_api: Boolean(stateSmart && currentTargetRecorded && timedTargetRecorded),
+    app_state_verified: appStateVerified,
+    accepted_by_api: appStateVerified,
+    app_state_source: "app_api_readback",
+    app_verification_scope: "backend_readback_not_phone_ui",
+    app_ui_observed: false,
+    app_state_checked_at: checkedAt,
+    app_current_level_raw: summary.current_level_raw,
+    app_current_level_app: summary.current_level_app,
+    app_time_based_level_raw: summary.time_based?.level_raw,
+    app_time_based_level_app: summary.time_based?.level_app,
+    app_time_based_duration_seconds: durationSeconds,
     hardware_verified: hardwareVerified,
+    hardware_verification_basis: hardware.basis,
+    hardware_verification_reason: side ? hardware.reason : "side_unresolved",
     observed_device_level_raw: observedDeviceLevel,
     observed_device_level_app: rawLevelToApp(observedDeviceLevel),
     device_signal: signal.field,
+    device_active_signal: signal.activeField,
+    device_active: signal.active,
     device_target_signal: signal.targetField,
     reported_device_target_raw: signal.targetValue,
+    device_target_matches_requested: hardware.targetMatches,
+    device_target_conflict: hardware.targetConflict,
     side_resolved: Boolean(side),
     state: summary.state,
     requested_duration_seconds: expectedDuration,
     observed_duration_seconds: durationSeconds || undefined,
+    verification_elapsed_seconds: elapsedSeconds,
+    verification_minimum_elapsed_seconds: minimumElapsedSeconds,
+    expected_remaining_duration_seconds: expectedRemainingDurationMin === expectedRemainingDurationMax
+      ? expectedRemainingDurationMin
+      : undefined,
+    expected_remaining_duration_min_seconds: expectedRemainingDurationMin,
+    expected_remaining_duration_max_seconds: expectedRemainingDurationMax,
+    duration_tolerance_seconds: durationToleranceSeconds,
+    duration_verification_scope: expectedDuration === undefined
+      ? "active_override_only"
+      : elapsedKnown
+        ? "plan_duration_adjusted_for_elapsed_time"
+        : "requested_remaining_duration_with_tolerance",
+    duration_verified_against_plan: expectedDuration === undefined ? undefined : durationMatches,
   };
 }
 
 export function verifyOff(input) {
   const structured = input?.temperature ? input : { temperature: input };
-  const { temperature, currentDevice, device, userId } = structured;
+  const { temperature, currentDevice, device, userId, checkedAt } = structured;
   const summary = summarizeTemperature(temperature);
-  const staleTimeBased = summary.time_based?.level_raw !== undefined && summary.time_based.level_raw !== 0;
+  const timeBasedPresent = summary.time_based !== undefined;
+  const timeBasedLevelCleared = summary.time_based?.level_raw === undefined || summary.time_based.level_raw === 0;
+  const timeBasedDurationCleared = summary.time_based?.duration_seconds === undefined || summary.time_based.duration_seconds === 0;
+  const timeBasedCleared = !timeBasedPresent || (timeBasedLevelCleared && timeBasedDurationCleared);
+  const stateOff = summary.state === "off";
+  const currentLevelOff = summary.current_level_raw === 0;
+  const appStateVerified = stateOff && currentLevelOff && timeBasedCleared;
+  const reason = !stateOff
+    ? "state_not_off"
+    : !currentLevelOff
+      ? "current_level_not_zero_or_missing"
+      : !timeBasedCleared
+        ? "stale_time_based_override"
+        : undefined;
   const side = resolveSide(currentDevice, device, userId);
   const signal = deviceSignal(device, side);
-  const temperatureHardware = summary.device_level_raw === 0;
-  const deviceHardware = signal.value === 0;
-  const hardwareVerified = Boolean(side && (signal.value !== undefined ? deviceHardware : temperatureHardware));
+  const hardware = assessHardwareSignal(signal, summary.device_level_raw, 0);
+  const hardwareVerified = Boolean(side && hardware.verified);
   return {
-    accepted_by_api: summary.state === "off",
-    hardware_verified: summary.state === "off" && hardwareVerified,
+    app_state_verified: appStateVerified,
+    accepted_by_api: appStateVerified,
+    app_state_source: "app_api_readback",
+    app_verification_scope: "backend_readback_not_phone_ui",
+    app_ui_observed: false,
+    app_state_checked_at: checkedAt,
+    app_off_state_verified: stateOff,
+    app_current_level_zero: currentLevelOff,
+    app_current_level_raw: summary.current_level_raw,
+    app_current_level_app: summary.current_level_app,
+    app_time_based_level_raw: summary.time_based?.level_raw,
+    app_time_based_level_app: summary.time_based?.level_app,
+    app_time_based_duration_seconds: summary.time_based?.duration_seconds,
+    app_time_based_cleared: timeBasedCleared,
+    reason,
+    hardware_verified: hardwareVerified,
+    hardware_verification_basis: hardware.basis,
+    hardware_verification_reason: side ? hardware.reason : "side_unresolved",
     state: summary.state,
-    observed_device_level_raw: signal.value ?? summary.device_level_raw,
+    observed_device_level_raw: hardware.observed,
     device_signal: signal.field,
+    device_active_signal: signal.activeField,
+    device_active: signal.active,
     device_target_signal: signal.targetField,
     reported_device_target_raw: signal.targetValue,
+    device_target_matches_off: hardware.targetMatches,
+    device_target_conflict: hardware.targetConflict,
     side_resolved: Boolean(side),
-    stale_time_based_override: staleTimeBased,
+    stale_time_based_override: !timeBasedCleared,
   };
 }
 
@@ -793,7 +947,7 @@ export function assertWriteGate(env, options, expectedConfirmation) {
 
 export function temperatureSetBody(appLevel, durationSeconds) {
   const rawLevel = appLevelToRaw(appLevel);
-  const duration = numberOption(durationSeconds, "duration-seconds", { min: 60, max: 14_400, fallback: 3_600 });
+  const duration = numberOption(durationSeconds, "duration-seconds", { min: 60, max: 14_400 });
   return {
     rawLevel,
     duration,
