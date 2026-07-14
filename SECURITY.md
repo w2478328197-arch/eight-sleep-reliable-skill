@@ -6,6 +6,8 @@ Security fixes target the latest released version. Older versions may not receiv
 
 This is an unofficial community project. It is not affiliated with, endorsed by, or supported by Eight Sleep, Inc. It uses private, undocumented API endpoints that may change without notice.
 
+The generic MCP option documented in the README runs the separate `eight-sleep-mcp-unofficial` project. Its server, tools, and mutation controls are outside this repository's code and security boundary. Review that upstream project independently before connecting it to an AI client or enabling writes.
+
 ## Report a vulnerability
 
 Use GitHub's private vulnerability reporting feature under **Security → Advisories → Report a vulnerability** when it is available.
@@ -32,7 +34,7 @@ If any credential was exposed, remove it from public view, rotate or revoke it i
 
 - Each user must authenticate locally with an Eight Sleep account they personally control. Authorization to operate a device does not authorize sharing an account, password, token, setup file, or exported health data.
 - Keep mutation controls disabled unless the user intentionally enables device changes.
-- Store secrets outside the repository with permissions restricted to the local user. Treat a POSIX token file as unsafe until `doctor` reports `credentials.secure_permissions: true`.
+- Store secrets outside the repository with permissions restricted to the local user. Treat a POSIX token file as unsafe until this repository's bundled CLI `doctor` reports `credentials.secure_permissions: true`.
 - Use synthetic data for tests and continuous integration.
 - Treat unexpected API responses as possible upstream changes and avoid retrying device mutations blindly.
 
